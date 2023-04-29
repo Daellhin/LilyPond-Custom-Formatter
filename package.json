@@ -31,7 +31,9 @@
         ]
     },
     "scripts": {
-        "postinstall": "node ./node_modules/vscode/bin/install && tsc"
+        "postinstall": "node ./node_modules/vscode/bin/install && tsc",
+        "compile": "tsc -p ./",
+		"watch": "tsc -w -p ./"
     },
     "devDependencies": {
         "@types/node": "18.16.3",

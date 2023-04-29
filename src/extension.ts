@@ -53,14 +53,14 @@ export function activate(context: vscode.ExtensionContext) {
 
             // -- Format -- 
             const matchedBlocks = Array.from(cleanedText
-                .matchAll(/(?<=((^|}|"|%.*)(\s|\n)*))(?<!({})(\s|\n)*)((\\version)|(\\header)|(\\layout)|((.*=\s*)?\\relative)|(\\score)|(%(?!.*\n*.*(}|%))))/g))
+                .matchAll(/(?<=((^|}|"|%.*)(\s|\n)*))(?<!({})(\s|\n)*)((\\version)|(\\header)|(\\layout)|(\\include)|((.*=\s*)?\\relative)|(\\score)|(%(?!.*\n*.*(}|%))))/g))
             const blocks1 = matchedBlocks
                 .map(match => {
                     let endIndex = 0;
                     const matchTextAndLeftover = cleanedText.slice(match.index, cleanedText.length)
                     if (match[0].startsWith("%"))
                         endIndex = matchTextAndLeftover.indexOf("\n") - 1
-                    else if (match[0].startsWith("\\version"))
+                    else if (match[0].startsWith("\\version") || match[0].startsWith("\\include"))
                         endIndex = findNthIndex(matchTextAndLeftover, `"`, 2)
                     else
                         endIndex = findFirstBracketPairEndIndex(matchTextAndLeftover)
@@ -86,14 +86,42 @@ export function activate(context: vscode.ExtensionContext) {
                     if (match.text.includes("\\relative")) {
                         const preamble = match.text.match(/.*?\\relative .*?{/g)
                         const body = match.text.replace(preamble[0], '').trim()
-                        const rows = body.match(/.*?%.*?$/gms)
-                        const newRows = rows.map(row => "\t" + row.replace(/[\n\r]/g, '').trim())
+
+                        // -- Fix barnumbercheck --
+                        const newBody = body.replace(/\\barNumberCheck #(\d*)/g, '%$1\n')
+
+                        // -- Fix stems --
+                        let previousStem = ''
+                        const newBody2Split = newBody.split(/(?<=(?:\\stemDown)|(?:\\stemUp)|(?:\\stemNeutral))/)
+                        const newBody2 = newBody2Split.map((e) => {
+                            const currentStemMatch = e.match(/(?:\\stemDown)|(?:\\stemUp)|(?:\\stemNutral)/)
+                            if (!currentStemMatch) return e
+                            const currentStem = currentStemMatch[0]
+                            if (currentStem != previousStem) {
+                                previousStem = currentStem
+                                return e
+                            }
+                            const remplaced = e.replace(currentStem, '')
+                            return remplaced
+                        }).join('')
+
+                        // -- Fix comments --
+                        const rows = newBody2.match(/.*?%.*?$/gms)
+
+                        // -- Fix indentation --
+                        const newRows = rows.map(row => {
+                            const newRow = row
+                                .replace(/[\n\r]/g, '') // remove newlines
+                                .replace(/  +/g, ' ')   // remove double spaces
+                                .trim()
+                            return "\t" + newRow
+                        })
                             .join('\n')
                         return preamble + "\n" + newRows + "\n}"
                     }
                     return match.text
                 })
-            const formattedBlocks = blocks3.join('\n')
+            const formattedBlocks = blocks3.join('\n\n')
 
             const wholeDocument = new vscode.Range(document.positionAt(0), document.positionAt(text.length))
             return [vscode.TextEdit.replace(wholeDocument, formattedBlocks)]

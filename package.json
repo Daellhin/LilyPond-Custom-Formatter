@@ -1,28 +1,25 @@
 {
-    "name": "formatter-sample",
-    "displayName": "formatter-sample",
+    "name": "lilypond-custom-formatter",
+    "displayName": "Lilypond Custom Formatter",
     "description": "",
     "version": "0.0.1",
-    "publisher": "jrieken",
+    "publisher": "lorinspeybrouck",
     "engines": {
         "vscode": "^1.6.0"
     },
     "categories": [
-        "Other"
-    ],
-    "activationEvents": [
-        "onLanguage:foo-lang"
+        "Formatters"
     ],
     "main": "./out/src/extension",
     "contributes": {
         "languages": [
             {
-                "id": "foo-lang",
+                "id": "lilypond",
                 "aliases": [
-                    "Foo"
+                    "Lilypond"
                 ],
                 "extensions": [
-                    "foo"
+                    "ly"
                 ]
             }
         ],
@@ -38,7 +35,9 @@
     },
     "devDependencies": {
         "@types/node": "18.16.3",
+        "@types/vscode": "1.77.0",
         "typescript": "5.0.4",
+        "ts-node": "^10.9.1",
         "vscode": "1.1.37"
     }
 }

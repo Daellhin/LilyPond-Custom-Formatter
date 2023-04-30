@@ -1,10 +1,7 @@
-'use strict';
-
-import * as vscode from 'vscode';
+import { ExtensionContext, Range, TextDocument, TextEdit, languages } from 'vscode';
 
 function findFirstBracketPairEndIndex(string: string, openChar = "{", closeChar = "}") {
     let openBrackets = 0;
-    //string = [...string].filter(e => e === openChar || e === closeChar).join('');
     for (const [i, char] of string.split("").entries()) {
         if (char === openChar) {
             openBrackets++
@@ -17,114 +14,70 @@ function findFirstBracketPairEndIndex(string: string, openChar = "{", closeChar 
     return -1; // no  brackets found
 }
 
-function findNthIndex(string: string, char: string, n: number) {
-    let index = -1;
-    for (let i = 0; i < n; i++) {
-        index = string.indexOf(char, index + 1);
-        if (index === -1) break; // end of string reached, nth char not found
-    }
-    return index;
-}
-
-export function activate(context: vscode.ExtensionContext) {
-
-    // 👎 formatter implemented as separate command
-    vscode.commands.registerCommand('extension.format-foo', () => {
-        const { activeTextEditor } = vscode.window;
-
-        if (activeTextEditor && activeTextEditor.document.languageId === 'foo-lang') {
-            const { document } = activeTextEditor;
-            const firstLine = document.lineAt(0);
-            if (firstLine.text !== '42') {
-                const edit = new vscode.WorkspaceEdit();
-                edit.insert(document.uri, firstLine.range.start, '42\n');
-                return vscode.workspace.applyEdit(edit)
-            }
-        }
-    });
-
-    // 👍 formatter implemented using API
-    vscode.languages.registerDocumentFormattingEditProvider('lilypond', {
-        provideDocumentFormattingEdits(document: vscode.TextDocument) {
+export function activate(context: ExtensionContext) {
+    languages.registerDocumentFormattingEditProvider('lilypond', {
+        provideDocumentFormattingEdits(document: TextDocument) {
             const text = document.getText()
-            // -- Cleanup --
-            const cleanedText = text
-                .replace(/ *= */g, ' = ') // remove spaces around =
 
-            // -- Format -- 
-            const matchedBlocks = Array.from(cleanedText
-                .matchAll(/(?<=((^|}|"|%.*)(\s|\n)*))(?<!({})(\s|\n)*)((\\version)|(\\header)|(\\layout)|(\\include)|((.*=\s*)?\\relative)|(\\score)|(%(?!.*\n*.*(}|%))))/g))
-            const blocks1 = matchedBlocks
-                .map(match => {
-                    let endIndex = 0;
-                    const matchTextAndLeftover = cleanedText.slice(match.index, cleanedText.length)
-                    if (match[0].startsWith("%"))
-                        endIndex = matchTextAndLeftover.indexOf("\n") - 1
-                    else if (match[0].startsWith("\\version") || match[0].startsWith("\\include"))
-                        endIndex = findNthIndex(matchTextAndLeftover, `"`, 2)
-                    else
-                        endIndex = findFirstBracketPairEndIndex(matchTextAndLeftover)
+            // -- Header --
+            const headerMatches = [...text.matchAll(/\\header(\s|\n)*{/g)]
+            const headerBlocks = headerMatches.map((match) => {
+                const preamble = match[0]
+                const matchTextToEnd = text.slice(match.index)
+                const endIndex = findFirstBracketPairEndIndex(matchTextToEnd)
+                const body = matchTextToEnd.slice(preamble.length, endIndex)
+                return { preamble: preamble, body: body, index: match.index, initialLength: preamble.length + body.length }
+            })
+            const headerEdits = headerBlocks.map((block) => {
+                const newPreamble = block.preamble.replace(/\\header(\s|\n)*{/g, "\\header {\n")
+                const newBody = block.body.replace(/(?:\s|\n)*(\w*)(?:\s|\n)*=(?:\s|\n)*(".*?")(?:\s|\n)*/g, "\t$1 = $2\n")
+                const newHeaderText = newPreamble + newBody
 
-                    const matchText = matchTextAndLeftover.slice(0, endIndex + 1)
-                    return { text: matchText, index: match.index }
-                })
-            const blocks2 = blocks1
-                .filter((match, _, array) => {
-                    const startIndex = match.index
-                    const endIndex = match.index + match.text.length
-                    array.forEach((otherMatch, otherIndex) => {
-                        if (otherIndex !== match.index) return
-                        const otherStartIndex = otherMatch.index
-                        const otherEndIndex = otherMatch.index + otherMatch.text.length
-                        if (otherStartIndex < startIndex && otherEndIndex < endIndex)
-                            return false
-                    })
-                    return true;
-                })
-            const blocks3 = blocks2
-                .map(match => {
-                    if (match.text.includes("\\relative")) {
-                        const preamble = match.text.match(/.*?\\relative .*?{/g)
-                        const body = match.text.replace(preamble[0], '').trim()
+                const start = document.positionAt(block.index)
+                const end = document.positionAt(block.index + block.initialLength)
+                return TextEdit.replace(new Range(start, end), newHeaderText)
+            })
 
-                        // -- Fix barnumbercheck --
-                        const newBody = body.replace(/\\barNumberCheck #(\d*)/g, '%$1\n')
+            // -- Voices --
+            const voiceMatches = [...text.matchAll(/(\w*)(?:\s|\n)*=(?:\s|\n)*\\relative(.|\n)*?{/g)]
+            const voiceBlocks = voiceMatches.map((match) => {
+                const preamble = match[0]
+                const matchTextToEnd = text.slice(match.index)
+                const endIndex = findFirstBracketPairEndIndex(matchTextToEnd)
+                const body = matchTextToEnd.slice(preamble.length, endIndex)
+                return { preamble: preamble, body: body, index: match.index, initialLength: preamble.length + body.length }
+            })
+            const voiceEdits = voiceBlocks.map((block) => {
+                const newPreamble = block.preamble.replace(/(\w*)(?:\s|\n)*=(?:\s|\n)*\\relative\s(?:\s|\n)*(.*?)(?:\s|\n)*{/g, "$1 = \\relative $2 {\n")
 
-                        // -- Fix stems --
-                        let previousStem = ''
-                        const newBody2Split = newBody.split(/(?<=(?:\\stemDown)|(?:\\stemUp)|(?:\\stemNeutral))/)
-                        const newBody2 = newBody2Split.map((e) => {
-                            const currentStemMatch = e.match(/(?:\\stemDown)|(?:\\stemUp)|(?:\\stemNutral)/)
-                            if (!currentStemMatch) return e
-                            const currentStem = currentStemMatch[0]
-                            if (currentStem != previousStem) {
-                                previousStem = currentStem
-                                return e
-                            }
-                            const remplaced = e.replace(currentStem, '')
-                            return remplaced
-                        }).join('')
-
-                        // -- Fix comments --
-                        const rows = newBody2.match(/.*?%.*?$/gms)
-
-                        // -- Fix indentation --
-                        const newRows = rows.map(row => {
-                            const newRow = row
-                                .replace(/[\n\r]/g, '') // remove newlines
-                                .replace(/  +/g, ' ')   // remove double spaces
-                                .trim()
-                            return "\t" + newRow
-                        })
-                            .join('\n')
-                        return preamble + "\n" + newRows + "\n}"
+                // -- Fix stems --
+                let previousStem = ''
+                const splitBody = block.body.split(/(?<=(?:\\stemDown)|(?:\\stemUp)|(?:\\stemNeutral))/)
+                const noDoubleStems = splitBody.map((e) => {
+                    const currentStemMatch = e.match(/(?:\\stemDown)|(?:\\stemUp)|(?:\\stemNutral)/)
+                    if (!currentStemMatch) return e
+                    const currentStem = currentStemMatch[0]
+                    if (currentStem != previousStem) {
+                        previousStem = currentStem
+                        return e
                     }
-                    return match.text
-                })
-            const formattedBlocks = blocks3.join('\n\n')
+                    const remplaced = e.replace(currentStem, '')
+                    return remplaced
+                }).join('')
 
-            const wholeDocument = new vscode.Range(document.positionAt(0), document.positionAt(text.length))
-            return [vscode.TextEdit.replace(wholeDocument, formattedBlocks)]
+                const noBarNumberChecks = noDoubleStems.replace(/\\barNumberCheck #(\d*)/g, '%$1\n')
+                const noNewLines = noBarNumberChecks.replace(/[\n\r]/g, '')
+                const noDoubleSpaces = noNewLines.replace(/  +/g, ' ')
+                const linePerComment = noDoubleSpaces.replace(/%\s*(\d*)/gms, "% $1\n")
+
+                const newHeaderText = newPreamble + linePerComment
+
+                const start = document.positionAt(block.index)
+                const end = document.positionAt(block.index + block.initialLength)
+                return TextEdit.replace(new Range(start, end), newHeaderText)
+            })
+
+            return [...headerEdits, ...voiceEdits]
         }
     });
 }

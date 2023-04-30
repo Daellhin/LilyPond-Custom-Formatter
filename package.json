@@ -3,10 +3,17 @@
     "displayName": "Lilypond Custom Formatter",
     "description": "",
     "version": "0.0.1",
-    "publisher": "lorinspeybrouck",
-    "engines": {
-        "vscode": "^1.6.0"
+    "publisher": "lorin-speybrouck",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Daellhin/LilyPond-Custom-Formatter"
     },
+    "engines": {
+        "vscode": "^1.77.0"
+    },
+    "activationEvents": [
+        "onLanguage:lilypond"
+    ],
     "categories": [
         "Formatters"
     ],
@@ -33,13 +40,12 @@
     "scripts": {
         "postinstall": "node ./node_modules/vscode/bin/install && tsc",
         "compile": "tsc -p ./",
-		"watch": "tsc -w -p ./"
+        "watch": "tsc -w -p ./"
     },
     "devDependencies": {
         "@types/node": "18.16.3",
         "@types/vscode": "1.77.0",
-        "typescript": "5.0.4",
         "ts-node": "^10.9.1",
-        "vscode": "1.1.37"
+        "typescript": "5.0.4"
     }
 }

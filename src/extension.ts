@@ -1,5 +1,12 @@
 import { ExtensionContext, Range, TextDocument, TextEdit, languages } from 'vscode';
 
+type Block = {
+    preamble: string,
+    body: string,
+    index: number,
+    initialLength: number
+}
+
 function findFirstBracketPairEndIndex(string: string, openChar = "{", closeChar = "}") {
     let openBrackets = 0;
     for (const [i, char] of string.split("").entries()) {
@@ -14,6 +21,33 @@ function findFirstBracketPairEndIndex(string: string, openChar = "{", closeChar 
     return -1; // no  brackets found
 }
 
+function findNthIndex(string: string, char: string, n: number) {
+    let index = -1;
+    for (let i = 0; i < n; i++) {
+        index = string.indexOf(char, index + 1);
+        if (index === -1) break; // end of string reached, nth char not found
+    }
+    return index;
+}
+
+function createFormatBlocks(text: string, matches: RegExpMatchArray[], blockendFinder: (string: string) => number, includeEnd = false) {
+    return matches.map((match) => {
+        const preamble = match[0]
+        const matchTextToEnd = text.slice(match.index)
+        const endIndex = blockendFinder(matchTextToEnd)
+        const body = matchTextToEnd.slice(preamble.length, endIndex + (includeEnd ? 1 : 0))
+        return { preamble: preamble, body: body, index: match.index, initialLength: preamble.length + body.length }
+    })
+}
+
+function createTextReplacements(document, blocks: Block[], editor: (block: Block) => string) {
+    return blocks.map((block) => {
+        const start = document.positionAt(block.index)
+        const end = document.positionAt(block.index + block.initialLength)
+        return TextEdit.replace(new Range(start, end), editor(block))
+    })
+}
+
 export function activate(context: ExtensionContext) {
     languages.registerDocumentFormattingEditProvider('lilypond', {
         provideDocumentFormattingEdits(document: TextDocument) {
@@ -21,33 +55,28 @@ export function activate(context: ExtensionContext) {
 
             // -- Header --
             const headerMatches = [...text.matchAll(/\\header(\s|\n)*{/g)]
-            const headerBlocks = headerMatches.map((match) => {
-                const preamble = match[0]
-                const matchTextToEnd = text.slice(match.index)
-                const endIndex = findFirstBracketPairEndIndex(matchTextToEnd)
-                const body = matchTextToEnd.slice(preamble.length, endIndex)
-                return { preamble: preamble, body: body, index: match.index, initialLength: preamble.length + body.length }
-            })
-            const headerEdits = headerBlocks.map((block) => {
+            const headerBlocks = createFormatBlocks(text, headerMatches, findFirstBracketPairEndIndex);
+            const headerEdits = createTextReplacements(document, headerBlocks, (block) => {
                 const newPreamble = block.preamble.replace(/\\header(\s|\n)*{/g, "\\header {\n")
                 const newBody = block.body.replace(/(?:\s|\n)*(\w*)(?:\s|\n)*=(?:\s|\n)*(".*?")(?:\s|\n)*/g, "\t$1 = $2\n")
-                
                 const newHeaderText = newPreamble + newBody
-                const start = document.positionAt(block.index)
-                const end = document.positionAt(block.index + block.initialLength)
-                return TextEdit.replace(new Range(start, end), newHeaderText)
+                return newHeaderText
+            })
+
+            // -- Version --
+            const versionMatches = [...text.matchAll(/\\version(\s|\n)*(?=")/g)]
+            const versionBlocks = createFormatBlocks(text, versionMatches, (e) => findNthIndex(e, `"`, 2), true);
+            const versionEdits = createTextReplacements(document, versionBlocks, (block) => {
+                const newPreamble = block.preamble.replace(/\\version(\s|\n)*/g, "\\version ")
+                const newBody = block.body
+                const newHeaderText = newPreamble + newBody
+                return newHeaderText
             })
 
             // -- Voices --
             const voiceMatches = [...text.matchAll(/(\w*)(?:\s|\n)*=(?:\s|\n)*\\relative(.|\n)*?{/g)]
-            const voiceBlocks = voiceMatches.map((match) => {
-                const preamble = match[0]
-                const matchTextToEnd = text.slice(match.index)
-                const endIndex = findFirstBracketPairEndIndex(matchTextToEnd)
-                const body = matchTextToEnd.slice(preamble.length, endIndex)
-                return { preamble: preamble, body: body, index: match.index, initialLength: preamble.length + body.length }
-            })
-            const voiceEdits = voiceBlocks.map((block) => {
+            const voiceBlocks = createFormatBlocks(text, voiceMatches, findFirstBracketPairEndIndex);
+            const voiceEdits = createTextReplacements(document, voiceBlocks, (block) => {
                 const newPreamble = block.preamble.replace(/(\w*)(?:\s|\n)*=(?:\s|\n)*\\relative\s(?:\s|\n)*(.*?)(?:\s|\n)*{/g, "$1 = \\relative $2 {\n")
 
                 // -- Fix stems --
@@ -70,14 +99,11 @@ export function activate(context: ExtensionContext) {
                 const noDoubleSpaces = noNewLines.replace(/  +/g, ' ')
                 const linePerComment = noDoubleSpaces.replace(/%\s*(\d*)/gms, "% $1\n")
                 const indentLines = linePerComment.replace(/^\s*(.*)/gm, '\t$1')
-
                 const newHeaderText = newPreamble + indentLines + '\n'
-                const start = document.positionAt(block.index)
-                const end = document.positionAt(block.index + block.initialLength)
-                return TextEdit.replace(new Range(start, end), newHeaderText)
+                return newHeaderText
             })
 
-            return [...headerEdits, ...voiceEdits]
+            return [...headerEdits, ...versionEdits, ...voiceEdits]
         }
     });
 }

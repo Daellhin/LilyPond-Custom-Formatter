@@ -31,8 +31,8 @@ export function activate(context: ExtensionContext) {
             const headerEdits = headerBlocks.map((block) => {
                 const newPreamble = block.preamble.replace(/\\header(\s|\n)*{/g, "\\header {\n")
                 const newBody = block.body.replace(/(?:\s|\n)*(\w*)(?:\s|\n)*=(?:\s|\n)*(".*?")(?:\s|\n)*/g, "\t$1 = $2\n")
+                
                 const newHeaderText = newPreamble + newBody
-
                 const start = document.positionAt(block.index)
                 const end = document.positionAt(block.index + block.initialLength)
                 return TextEdit.replace(new Range(start, end), newHeaderText)
@@ -61,17 +61,17 @@ export function activate(context: ExtensionContext) {
                         previousStem = currentStem
                         return e
                     }
-                    const remplaced = e.replace(currentStem, '')
-                    return remplaced
+                    const replaced = e.replace(currentStem, '')
+                    return replaced
                 }).join('')
 
                 const noBarNumberChecks = noDoubleStems.replace(/\\barNumberCheck #(\d*)/g, '%$1\n')
                 const noNewLines = noBarNumberChecks.replace(/[\n\r]/g, '')
                 const noDoubleSpaces = noNewLines.replace(/  +/g, ' ')
                 const linePerComment = noDoubleSpaces.replace(/%\s*(\d*)/gms, "% $1\n")
+                const indentLines = linePerComment.replace(/^\s*(.*)/gm, '\t$1')
 
-                const newHeaderText = newPreamble + linePerComment
-
+                const newHeaderText = newPreamble + indentLines + '\n'
                 const start = document.positionAt(block.index)
                 const end = document.positionAt(block.index + block.initialLength)
                 return TextEdit.replace(new Range(start, end), newHeaderText)
